@@ -1,0 +1,80 @@
+# Use the appId from the previous step
+    az ad sp create --id <YOUR_APP_ID>
+    ```
+
+---
+
+### Step 2: Assign Permissions to the Cluster
+Your new identity needs permission to "talk" to your AKS cluster.
+
+1.  **Assign the 'Azure Kubernetes Service Cluster User Role':**
+    This allows the identity to download the `kubeconfig`.
+    
+```bash
+    az role assignment create --role "Azure Kubernetes Service Cluster User Role" \
+      --assignee <YOUR_APP_ID> \
+      --scope /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RG_NAME>/providers/Microsoft.ContainerService/managedClusters/<CLUSTER_NAME>
+    ```
+2.  **Assign Cluster Admin (or Contributor) Permissions:**
+    If you want the action to be able to create pods/services, it needs a role like **Contributor** at the Resource Group level.
+
+---
+
+### Step 3: Configure Federated Credentials
+This is the "handshake" where Azure agrees to trust GitHub.
+
+1.  Go to the **Azure Portal** > **Microsoft Entra ID** > **App registrations**.
+2.  Select your app (**GitHub-AKS-Deployer**).
+3.  Go to **Certificates & secrets** > **Federated credentials** > **Add credential**.
+4.  **Scenario:** Select "GitHub Actions deploying Azure resources."
+5.  **Organization:** Your GitHub Username or Org.
+6.  **Repository:** Your repo name.
+7.  **Entity Type:** Choose **Branch** (usually `main`) or **Environment**.
+    *   *Note: This ensures only your specific repo and branch can log in.*
+
+---
+
+### Step 4: Add Secrets to GitHub
+In your GitHub Repo, go to **Settings > Secrets and variables > Actions** and add these three **Variables** (or Secrets):
+*   `AZURE_CLIENT_ID`: The App (Client) ID from Step 1.
+*   `AZURE_TENANT_ID`: Your Azure Tenant ID.
+*   `AZURE_SUBSCRIPTION_ID`: Your Azure Subscription ID.
+
+---
+
+### Step 5: The GitHub Action Workflow
+Create `.github/workflows/deploy.yml` in your repo. The `id-token: write` permission is the most critical part here.
+
+```yaml
+name: Deploy to AKS
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write # Required for requesting the JWT
+  contents: read  # Required for actions/checkout
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set AKS Context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: 'your-resource-group'
+          cluster-name: 'your-aks-cluster'
+
+      - name: Deploy Pod
+        run: |
+          kubectl apply -f k8s/deployment.yaml

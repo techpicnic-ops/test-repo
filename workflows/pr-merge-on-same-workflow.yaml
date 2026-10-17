@@ -1,0 +1,67 @@
+name: CI/CD Pipeline
+
+on:
+  pull_request:        # Trigger for PR
+    branches:
+      - main
+  push:                # Trigger for merge (push to main)
+    branches:
+      - main
+
+env:
+  APP_VERSION: 5.0.0
+
+jobs:
+
+  # Build & Push on PR
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Debug Secret Check
+        run: |
+          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            echo "DOCKERHUB_USERNAME is EMPTY"
+          else
+            echo "DOCKERHUB_USERNAME is SET"
+          fi
+
+      - name: Debug Secret Check-2
+        run: |
+          if [ -z "${{ secrets.DOCKER_USERNAME }}" ]; then
+            echo "DOCKER_USERNAME is EMPTY"
+          else
+            echo "DOCKER_USERNAME is SET"
+          fi
+
+      - name: Login to Docker
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+
+      - name: Build image
+        working-directory: ./application # Switch to app folder
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/my-app:$APP_VERSION .
+
+      - name: Push image
+        working-directory: ./application # Switch to app folder
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/my-app:$APP_VERSION
+
+  # 🚀 Deploy on Merge to main
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Print message
+        run: echo "Hello Suresh, CI/CD is working!"   # Step
+
+      
